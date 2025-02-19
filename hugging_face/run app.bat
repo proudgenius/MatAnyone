@@ -11,6 +11,6 @@ call myenv\Scripts\activate
 pip install -r requirements.txt
 
 :: Run the application
-python hugging_face/app.py
+python app.py
 
 pause
