@@ -2,7 +2,6 @@
 <div style="text-align: center;">
     <img src="./assets/matanyone_logo.png" alt="MatAnyone Logo" style="height: 52px;">
     <h2>Stable Video Matting with Consistent Memory Propagation</h2>
-</div>
 
 <div>
     <a href='https://pq-yang.github.io/' target='_blank'>Peiqing Yang</a><sup>1</sup>&emsp;
@@ -48,6 +47,7 @@
 
 
 ## 📮 Update
+- [2025.02.19] Modified python to better function on windows
 - [2025.02] Release inference codes and gradio demo 🤗
 - [2025.02] This repo is created.
 
