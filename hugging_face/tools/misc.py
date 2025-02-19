@@ -53,8 +53,31 @@ def get_root_logger(logger_name='basicsr', log_level=logging.INFO, log_file=None
     return logger
 
 
-IS_HIGH_VERSION = [int(m) for m in list(re.findall(r"^([0-9]+)\.([0-9]+)\.([0-9]+)([^0-9][a-zA-Z0-9]*)?(\+git.*)?$",\
-    torch.__version__)[0][:3])] >= [1, 12, 0]
+def get_torch_version():
+    """Get PyTorch version in a more robust way."""
+    version_str = torch.__version__
+    try:
+        # Split version string and take first three components
+        version_parts = version_str.split('.')[:3]
+        # Convert to integers, handling any non-numeric suffixes
+        version_numbers = []
+        for part in version_parts:
+            # Extract just the numeric portion
+            numeric_part = ''.join(c for c in part if c.isdigit())
+            if numeric_part:
+                version_numbers.append(int(numeric_part))
+            else:
+                version_numbers.append(0)
+        # Pad with zeros if needed
+        while len(version_numbers) < 3:
+            version_numbers.append(0)
+        return version_numbers
+    except Exception:
+        # Return a safe default if parsing fails
+        return [0, 0, 0]
+
+# Replace the problematic version check with the new function
+IS_HIGH_VERSION = get_torch_version() >= [1, 12, 0]
 
 def gpu_is_available():
     if IS_HIGH_VERSION:
