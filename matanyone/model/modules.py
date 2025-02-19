@@ -77,7 +77,7 @@ class SensoryUpdater_fullscale(nn.Module):
             self.g2_conv(downsample_groups(g[3], ratio=1/8)) + \
             self.g1_conv(downsample_groups(g[4], ratio=1/16))
 
-        with torch.cuda.amp.autocast(enabled=False):
+        with torch.amp.autocast('cuda', enabled=False):
             g = g.float()
             h = h.float()
             values = self.transform(torch.cat([g, h], dim=2))
@@ -101,7 +101,7 @@ class SensoryUpdater(nn.Module):
         g = self.g16_conv(g[0]) + self.g8_conv(downsample_groups(g[1], ratio=1/2)) + \
             self.g4_conv(downsample_groups(g[2], ratio=1/4))
 
-        with torch.cuda.amp.autocast(enabled=False):
+        with torch.amp.autocast('cuda', enabled=False):
             g = g.float()
             h = h.float()
             values = self.transform(torch.cat([g, h], dim=2))
@@ -118,7 +118,7 @@ class SensoryDeepUpdater(nn.Module):
         nn.init.xavier_normal_(self.transform.weight)
 
     def forward(self, g: torch.Tensor, h: torch.Tensor) -> torch.Tensor:
-        with torch.cuda.amp.autocast(enabled=False):
+        with torch.amp.autocast('cuda', enabled=False):
             g = g.float()
             h = h.float()
             values = self.transform(torch.cat([g, h], dim=2))
@@ -146,3 +146,25 @@ class ResBlock(nn.Module):
         g = self.downsample(g)
 
         return out_g + g
+
+    def __init__(self, in_dim, reduction_dim, bins):
+        super(PPM, self).__init__()
+        self.features = []
+        for bin in bins:
+            self.features.append(nn.Sequential(
+                nn.AdaptiveAvgPool2d(bin),
+                nn.Conv2d(in_dim, reduction_dim, kernel_size=1, bias=False),
+                nn.PReLU()
+            ))
+        self.features = nn.ModuleList(self.features)
+        self.fuse = nn.Sequential(
+                nn.Conv2d(in_dim+reduction_dim*4, in_dim, kernel_size=3, padding=1, bias=False),
+                nn.PReLU())
+
+    def forward(self, x):
+        x_size = x.size()
+        out = [x]
+        for f in self.features:
+            out.append(F.interpolate(f(x), x_size[2:], mode='bilinear', align_corners=True))
+        out_feat = self.fuse(torch.cat(out, 1))
+        return out_feat 
