@@ -1,8 +1,10 @@
-import sys
-sys.path.append("../")
-sys.path.append("../../")
-
 import os
+import sys
+
+# Add the project root directory to Python path
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.append(PROJECT_ROOT)
+
 import json
 import time
 import psutil
@@ -24,9 +26,6 @@ from tools.download_util import load_file_from_url
 from matanyone_wrapper import matanyone
 from matanyone.utils.get_default_model import get_matanyone_model
 from matanyone.inference.inference_core import InferenceCore
-
-import warnings
-warnings.filterwarnings("ignore")
 
 def parse_augment():
     parser = argparse.ArgumentParser()
@@ -119,12 +118,14 @@ def get_frames_from_video(video_input, video_state):
     user_name = time.time()
 
     # extract Audio
+    audio_path = "audio.wav"
+    audio_path = video_input.replace(".mp4", "_audio.wav")
     try:
-        audio_path = video_input.replace(".mp4", "_audio.wav")
         ffmpeg.input(video_path).output(audio_path, format='wav', acodec='pcm_s16le', ac=2, ar='44100').run(overwrite_output=True, quiet=True)
     except Exception as e:
         print(f"Audio extraction error: {str(e)}")
         audio_path = ""  # Set to "" if extraction fails
+    # print(f'audio_path: {audio_path}')
     
     # extract frames
     try:
@@ -142,16 +143,6 @@ def get_frames_from_video(video_input, video_state):
     except (OSError, TypeError, ValueError, KeyError, SyntaxError) as e:
         print("read_frame_source:{} error. {}\n".format(video_path, str(e)))
     image_size = (frames[0].shape[0],frames[0].shape[1]) 
-
-    # [remove for local demo] resize if resolution too big
-    # if image_size[0]>=1280 and image_size[0]>=1280:
-    #     scale = 1080 / min(image_size)
-    #     new_w = int(image_size[1] * scale)
-    #     new_h = int(image_size[0] * scale)
-    #     # update frames
-    #     frames = [cv2.resize(f, (new_w, new_h), interpolation=cv2.INTER_AREA) for f in frames]
-    #     # update image_size
-    #     image_size = (frames[0].shape[0],frames[0].shape[1]) 
 
     # initialize video_state
     video_state = {
@@ -270,7 +261,7 @@ def show_mask(video_state, interactive_state, mask_dropdown):
 
 # image matting
 def image_matting(video_state, interactive_state, mask_dropdown, erode_kernel_size, dilate_kernel_size, refine_iter):
-    matanyone_processor = InferenceCore(matanyone_model, cfg=matanyone_model.cfg)
+    matanyone_processor.clear_memory()
     if interactive_state["track_end_number"]:
         following_frames = video_state["origin_images"][video_state["select_frame_number"]:interactive_state["track_end_number"]]
     else:
@@ -294,12 +285,11 @@ def image_matting(video_state, interactive_state, mask_dropdown, erode_kernel_si
     foreground, alpha = matanyone(matanyone_processor, following_frames, template_mask*255, r_erode=erode_kernel_size, r_dilate=dilate_kernel_size, n_warmup=refine_iter)
     foreground_output = Image.fromarray(foreground[-1])
     alpha_output = Image.fromarray(alpha[-1][:,:,0])
-
     return foreground_output, alpha_output
 
 # video matting
 def video_matting(video_state, interactive_state, mask_dropdown, erode_kernel_size, dilate_kernel_size):
-    matanyone_processor = InferenceCore(matanyone_model, cfg=matanyone_model.cfg)
+    matanyone_processor.clear_memory()
     if interactive_state["track_end_number"]:
         following_frames = video_state["origin_images"][video_state["select_frame_number"]:interactive_state["track_end_number"]]
     else:
@@ -327,7 +317,7 @@ def video_matting(video_state, interactive_state, mask_dropdown, erode_kernel_si
 
     foreground_output = generate_video_from_frames(foreground, output_path="./results/{}_fg.mp4".format(video_state["video_name"]), fps=fps, audio_path=audio_path) # import video_input to name the output video
     alpha_output = generate_video_from_frames(alpha, output_path="./results/{}_alpha.mp4".format(video_state["video_name"]), fps=fps, gray2rgb=True, audio_path=audio_path) # import video_input to name the output video
-    
+
     return foreground_output, alpha_output
 
 
@@ -412,7 +402,8 @@ sam_checkpoint_url_dict = {
     'vit_l': "https://dl.fbaipublicfiles.com/segment_anything/sam_vit_l_0b3195.pth",
     'vit_b': "https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth"
 }
-checkpoint_folder = os.path.join('..', 'pretrained_models')
+checkpoint_folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'sam_models')
+os.makedirs(checkpoint_folder, exist_ok=True)
 
 sam_checkpoint = load_file_from_url(sam_checkpoint_url_dict[args.sam_model_type], checkpoint_folder)
 # initialize sams
@@ -420,25 +411,34 @@ model = MaskGenerator(sam_checkpoint, args)
 
 # initialize matanyone
 pretrain_model_url = "https://github.com/pq-yang/MatAnyone/releases/download/v1.0.0"
-ckpt_path = load_file_from_url(os.path.join(pretrain_model_url, 'matanyone.pth'), checkpoint_folder)
+checkpoint_folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'pretrained_models')
+os.makedirs(checkpoint_folder, exist_ok=True)
+
+# Use simple string concatenation for URLs, not os.path.join
+ckpt_path = load_file_from_url(pretrain_model_url + '/matanyone.pth', checkpoint_folder)
 matanyone_model = get_matanyone_model(ckpt_path, args.device)
 matanyone_model = matanyone_model.to(args.device).eval()
-# matanyone_processor = InferenceCore(matanyone_model, cfg=matanyone_model.cfg)
+matanyone_processor = InferenceCore(matanyone_model, cfg=matanyone_model.cfg)
 
 # download test samples
-media_url = "https://github.com/pq-yang/MatAnyone/releases/download/media/"
-test_sample_path = os.path.join('.', "test_sample/")
-load_file_from_url(os.path.join(media_url, 'test-sample0-720p.mp4'), test_sample_path)
-load_file_from_url(os.path.join(media_url, 'test-sample1-720p.mp4'), test_sample_path)
-load_file_from_url(os.path.join(media_url, 'test-sample2-720p.mp4'), test_sample_path)
-load_file_from_url(os.path.join(media_url, 'test-sample3-720p.mp4'), test_sample_path)
-load_file_from_url(os.path.join(media_url, 'test-sample0.jpg'), test_sample_path)
-load_file_from_url(os.path.join(media_url, 'test-sample1.jpg'), test_sample_path)
+media_url = "https://github.com/pq-yang/MatAnyone/releases/download/media"
+test_sample_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "test_sample")
+os.makedirs(test_sample_path, exist_ok=True)
+
+# Use string concatenation for URLs
+load_file_from_url(media_url + '/test-sample0-720p.mp4', test_sample_path)
+load_file_from_url(media_url + '/test-sample1-720p.mp4', test_sample_path)
+load_file_from_url(media_url + '/test-sample2-720p.mp4', test_sample_path)
+load_file_from_url(media_url + '/test-sample3-720p.mp4', test_sample_path)
+load_file_from_url(media_url + '/test-sample0.jpg', test_sample_path)
+load_file_from_url(media_url + '/test-sample1.jpg', test_sample_path)
 
 # download assets
-assets_path = os.path.join('.', "assets/")
-load_file_from_url(os.path.join(media_url, 'tutorial_single_target.mp4'), assets_path)
-load_file_from_url(os.path.join(media_url, 'tutorial_multi_targets.mp4'), assets_path)
+assets_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
+os.makedirs(assets_path, exist_ok=True)
+
+load_file_from_url(media_url + '/tutorial_single_target.mp4', assets_path)
+load_file_from_url(media_url + '/tutorial_multi_targets.mp4', assets_path)
 
 # documents
 title = r"""<div class="multi-layer" align="center"><span>MatAnyone</span></div>
@@ -447,9 +447,6 @@ description = r"""
 <b>Official Gradio demo</b> for <a href='https://github.com/pq-yang/MatAnyone' target='_blank'><b>MatAnyone: Stable Video Matting with Consistent Memory Propagation</b></a>.<br>
 🔥 MatAnyone is a practical human video matting framework supporting target assignment 🎯.<br>
 🎪 Try to drop your video/image, assign the target masks with a few clicks, and get the the matting results 🤡!<br>
-
-*Note: Due to the online GPU memory constraints, any input with too big resolution will be resized to 1080p.<br>
-🚀 If you wish to run MatAnyone on higher resolution inputs, we recommend luanching the [demo](https://github.com/pq-yang/MatAnyone#circus_tent-interactive-demo) locally.*
 """
 article = r"""
 <b>If MatAnyone is helpful, please help to 🌟 the <a href='https://github.com/pq-yang/MatAnyone' target='_blank'>Github Repo</a>. Thanks!</b>
@@ -478,7 +475,7 @@ If you have any questions, please feel free to reach me out at <b>peiqingyang99@
 <br>
 👏 **Acknowledgement**
 <br>
-This project is built upon [Cutie](https://github.com/hkchengrex/Cutie), with the interactive demo adapted from [ProPainter](https://github.com/sczhou/ProPainter), leveraging segmentation capabilities from [Segment Anything](https://github.com/facebookresearch/segment-anything). Thanks for their awesome works!
+The project is developed upon [Cutie](https://github.com/hkchengrex/Cutie), and harnesses the capabilities from [Segment Anything](https://github.com/facebookresearch/segment-anything). Thanks for their awesome works!
 """
 
 my_custom_css = """
@@ -533,6 +530,7 @@ body {
     text-align: center;
     padding: 0;
     margin: 0;
+    background: white;
     height: 5vh;
     width: 80vw;
     font-family: "Sarpanch", sans-serif;
@@ -571,11 +569,11 @@ with gr.Blocks(theme=gr.themes.Monochrome(), css=my_custom_css) as demo:
                 with gr.Row():
                     with gr.Column():
                         gr.Markdown("### Case 1: Single Target")
-                        gr.Video(value="./assets/tutorial_single_target.mp4", elem_classes="video")
+                        gr.Video(value="/home/user/app/hugging_face/assets/tutorial_single_target.mp4", elem_classes="video")
 
                     with gr.Column():
                         gr.Markdown("### Case 2: Multiple Targets")
-                        gr.Video(value="./assets/tutorial_multi_targets.mp4", elem_classes="video")
+                        gr.Video(value="/home/user/app/hugging_face/assets/tutorial_multi_targets.mp4", elem_classes="video")
 
     with gr.Tabs():
         with gr.TabItem("Video"):
